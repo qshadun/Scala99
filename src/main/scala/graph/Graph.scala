@@ -8,6 +8,21 @@ abstract class GraphBase[T, U] {
     var adj: List[Edge] = Nil
     // neighbors are all nodes adjacent to this node.
     def neighbors: List[Node] = adj.map(edgeTarget(_, this).get)
+    
+    def degree = neighbors.length
+     
+    def nodesByDepth(seen: Set[Node]): List[Node] = {
+      def nodesByDepthR(neighbors: List[Node], s: Set[Node]): List[Node] = 
+        neighbors match {
+          case Nil => Nil
+          case n :: tail if s(n) => nodesByDepthR(tail, s)
+          case n :: tail => {
+            val subnodes = n.nodesByDepth(s)
+            subnodes ::: nodesByDepthR(tail, s ++ subnodes)
+          }
+        }
+      nodesByDepthR(neighbors, seen + this) ::: List(this)
+    }
   }
 
   var nodes: Map[T, Node] = Map()
@@ -59,6 +74,84 @@ abstract class GraphBase[T, U] {
 
   def hasCycles: Boolean = nodes.keys.exists(!findCycles(_).isEmpty)
 
+   def isIsomorphicTo[R,S](o: GraphBase[R,S]): Boolean = {
+    // Build a lazy list so we only have to evaluate as much as necessary.
+    def listMappings(tNodes: List[Node], oNodes: List[o.Node]) =
+      tNodes.view.flatMap(tn => oNodes.view.map((tn, _)))
+    // Used on partially-filled isomorphisms to weed out some early.
+    def isValidMapping(iso: Map[Node,o.Node]): Boolean = 
+      nodes.values forall {tn =>
+        (!iso.contains(tn) ||
+         tn.neighbors.filter(iso.contains).forall(tnn => iso(tn).neighbors.contains(iso(tnn))))
+      }
+    def isValidCompleteMapping(iso: Map[Node,o.Node]): Boolean = 
+      nodes.values forall {tn =>
+        Set(tn.neighbors.map(iso): _*) == Set(iso(tn).neighbors: _*)
+      }
+    def isIsomorphicToR(tNodes: List[Node], oNodes: List[o.Node], iso: Map[Node,o.Node]): Boolean =
+      if (tNodes == Nil) isValidCompleteMapping(iso)
+      else listMappings(tNodes, oNodes).filter(p => isValidMapping(iso + p)) exists {p =>
+        isIsomorphicToR(tNodes - p._1, oNodes - p._2, iso + p)
+      }
+    isIsomorphicToR(nodes.values.toList, o.nodes.values.toList, Map())
+  }
+
+  // My not efficient implementation
+  def isIsomorphicTo1[A, B](g: Graph[A, B]): Boolean = {
+    val morph = bijection(g).filter(b => {
+      edges.forall(e => g.nodes(b(e.n1.value)).neighbors.exists(n => n.value == b(e.n2.value)))
+    })
+    println(morph)
+    morph.length > 0
+  }
+  
+  def bijection[A, B](g: Graph[A, B]): List[Map[T, A]] = {
+    def bijectionR(l1: List[T], l2: List[A]): List[Map[T, A]] = {
+      if (l1.length == nodes.size) List(Map(l1.zip(l2): _*))
+      else {
+        val av1 = nodes.keys.filter(!l1.contains(_))
+        val av2 = g.nodes.keys.filter(!l2.contains(_))
+        av2.flatMap(x => bijectionR(av1.head :: l1, x :: l2)).toList
+      }
+    }
+    bijectionR(Nil, Nil)
+  }
+  
+  def nodesByDegree: List[Node] = nodes.values.toList.sortBy(_.degree).reverse
+  
+  def colorNodes: List[(Node, Int)] = {
+    def colorNodesR(sofar: Map[Node, Int], remain: List[Node]): List[(Node, Int)] = {
+      if(remain == Nil) sofar.toList
+      else {
+        val ch = remain.head
+        val color = Stream.from(1).filter(col => {
+          ch.neighbors.forall(n => !sofar.contains(n) || sofar(n) != col)
+        }).take(1).head
+        colorNodesR(sofar + (ch -> color), remain.tail)
+      }
+    } 
+    colorNodesR(Map.empty[Node, Int], nodesByDegree)
+  }
+ 
+  // My implementation, non functional
+  def nodesByDepthFrom1(t: T): List[T] = {
+    var visited = List.empty[T]
+    def depthR(stack: List[T]): Unit = {
+      if (stack == Nil) ()
+      else {
+        nodes(stack.head).neighbors.foreach {n =>
+          if (stack.contains(n.value) || visited.contains(n.value)) ()
+          else depthR(n.value :: stack)
+        }
+        visited = stack.head :: visited
+      }
+    }
+    depthR(List(t))
+    visited.reverse
+  }
+  
+  def nodesByDepthFrom(start: T): List[T] = 
+    nodes(start).nodesByDepth(Set()).map(_.value)
 }
 
 class Graph[T, U] extends GraphBase[T, U] {
@@ -131,9 +224,6 @@ class Graph[T, U] extends GraphBase[T, U] {
     spanningTreesR (edges, nodes.values.toList.tail, Nil)
   }
   
-  def isIsomorphicTo[A, B](g: Graph[A, B]): Boolean = {
-    false
-  }
 }
 
 class Digraph[T, U] extends GraphBase[T, U] {
@@ -276,55 +366,66 @@ object Digraph extends GraphObjBase {
 }
 
 object TestGraph extends Application {
-  println(Graph.term(List('b', 'c', 'd', 'f', 'g', 'h', 'k'),
-    List(('b', 'c'), ('b', 'f'), ('c', 'f'), ('f', 'k'), ('g', 'h'))))
-  println(Digraph.term(List('r', 's', 't', 'u', 'v'),
-    List(('s', 'r'), ('s', 'u'), ('u', 'r'), ('u', 's'), ('v', 'u'))))
-  println(Graph.fromString("[g-h,f-k,c-f,b-f,b-c,d]"))
-  println(Graph.fromStringLabel("[g-h/3,f-k/2,c-f/7,b-f/12,b-c/22,d]"))
-  println(Digraph.fromString("[s>r, t, u>r, s>u, u>s, v>u]"))
-  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]"))
-
-  println(Graph.fromString("[g-h,f-k,c-f,b-f,b-c,d]").toTermForm)
-  println(Graph.fromStringLabel("[g-h/3,f-k/2,c-f/7,b-f/12,b-c/22,d]").toTermForm)
-  println(Digraph.fromString("[s>r, t, u>r, s>u, u>s, v>u]").toTermForm)
-  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").toTermForm)
-
-  println(Graph.fromString("[g-h,f-k,c-f,b-f,b-c,d]").toAdjacentForm)
-  println(Graph.fromStringLabel("[g-h/3,f-k/2,c-f/7,b-f/12,b-c/22,d]").toAdjacentForm)
-  println(Digraph.fromString("[s>r, t, u>r, s>u, u>s, v>u]").toAdjacentForm)
-  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").toAdjacentForm)
-
-  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").findPaths("p", "q"))
-  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").findPaths("p", "k"))
-
-  println(Graph.fromString("[b-c, f-c, g-h, d, f-b, k-f, h-g]").findCycles("f"))
-  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5, q>s/10, s>p/5]").findCycles("p"))
-
-  println(Graph.fromString("[a-b, b-c, a-c]").spanningTrees)
-  val st = Graph.term(List('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'),
-    List(('a', 'b'), ('a', 'd'), ('b', 'c'), ('b', 'e'),
-      ('c', 'e'), ('d', 'e'), ('d', 'f'), ('d', 'g'),
-      ('e', 'h'), ('f', 'g'), ('g', 'h'))).spanningTrees
-  println(st)
-  println(st.size)
-  val st1 = Graph.term(List('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'),
-    List(('a', 'b'), ('a', 'd'), ('b', 'c'), ('b', 'e'),
-      ('c', 'e'), ('d', 'e'), ('d', 'f'), ('d', 'g'),
-      ('e', 'h'), ('f', 'g'), ('g', 'h'))).spanningTrees1
-  println(st -- st1)
-  //  val g1 = Graph.fromString("[a-c,b-c]")
-  //  val g2 = Graph.fromString("[b-c,a-c]")
-  //  println(g1 == g2)
-  //  println(g1.hashCode())
-  //  println(g2.hashCode())
+//  println(Graph.term(List('b', 'c', 'd', 'f', 'g', 'h', 'k'),
+//    List(('b', 'c'), ('b', 'f'), ('c', 'f'), ('f', 'k'), ('g', 'h'))))
+//  println(Digraph.term(List('r', 's', 't', 'u', 'v'),
+//    List(('s', 'r'), ('s', 'u'), ('u', 'r'), ('u', 's'), ('v', 'u'))))
+//  println(Graph.fromString("[g-h,f-k,c-f,b-f,b-c,d]"))
+//  println(Graph.fromStringLabel("[g-h/3,f-k/2,c-f/7,b-f/12,b-c/22,d]"))
+//  println(Digraph.fromString("[s>r, t, u>r, s>u, u>s, v>u]"))
+//  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]"))
+//
+//  println(Graph.fromString("[g-h,f-k,c-f,b-f,b-c,d]").toTermForm)
+//  println(Graph.fromStringLabel("[g-h/3,f-k/2,c-f/7,b-f/12,b-c/22,d]").toTermForm)
+//  println(Digraph.fromString("[s>r, t, u>r, s>u, u>s, v>u]").toTermForm)
+//  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").toTermForm)
+//
+//  println(Graph.fromString("[g-h,f-k,c-f,b-f,b-c,d]").toAdjacentForm)
+//  println(Graph.fromStringLabel("[g-h/3,f-k/2,c-f/7,b-f/12,b-c/22,d]").toAdjacentForm)
+//  println(Digraph.fromString("[s>r, t, u>r, s>u, u>s, v>u]").toAdjacentForm)
+//  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").toAdjacentForm)
+//
+//  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").findPaths("p", "q"))
+//  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5]").findPaths("p", "k"))
+//
+//  println(Graph.fromString("[b-c, f-c, g-h, d, f-b, k-f, h-g]").findCycles("f"))
+//  println(Digraph.fromStringLabel("[p>q/9, m>q/7, k, p>m/5, q>s/10, s>p/5]").findCycles("p"))
+//
+//  println(Graph.fromString("[a-b, b-c, a-c]").spanningTrees)
+//  val st = Graph.term(List('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'),
+//    List(('a', 'b'), ('a', 'd'), ('b', 'c'), ('b', 'e'),
+//      ('c', 'e'), ('d', 'e'), ('d', 'f'), ('d', 'g'),
+//      ('e', 'h'), ('f', 'g'), ('g', 'h'))).spanningTrees
+//  println(st)
+//  println(st.size)
+//  val st1 = Graph.term(List('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'),
+//    List(('a', 'b'), ('a', 'd'), ('b', 'c'), ('b', 'e'),
+//      ('c', 'e'), ('d', 'e'), ('d', 'f'), ('d', 'g'),
+//      ('e', 'h'), ('f', 'g'), ('g', 'h'))).spanningTrees1
+//  println(st -- st1)
+//  //  val g1 = Graph.fromString("[a-c,b-c]")
+//  //  val g2 = Graph.fromString("[b-c,a-c]")
+//  //  println(g1 == g2)
+//  //  println(g1.hashCode())
+//  //  println(g2.hashCode())
+//  
+//  println(Graph.fromStringLabel("[a-b/1, b-c/2, a-c/3]").minimalSpanningTree)
+//  println(Graph.termLabel(
+//  List('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'),
+//       List(('a', 'b', 5), ('a', 'd', 3), ('b', 'c', 2), ('b', 'e', 4),
+//            ('c', 'e', 6), ('d', 'e', 7), ('d', 'f', 4), ('d', 'g', 3),
+//            ('e', 'h', 5), ('f', 'g', 4), ('g', 'h', 1))).minimalSpanningTree)
+            
+  val g1 = Graph.fromString("[a-b,b-c,c-f]")
+  val g2 = Graph.fromString("[1-2,1-3,1-4]")
+//  println(g1.bijection(g2))
+  println(g1.isIsomorphicTo(g2))
   
-  println(Graph.fromStringLabel("[a-b/1, b-c/2, a-c/3]").minimalSpanningTree)
-  println(Graph.termLabel(
-  List('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'),
-       List(('a', 'b', 5), ('a', 'd', 3), ('b', 'c', 2), ('b', 'e', 4),
-            ('c', 'e', 6), ('d', 'e', 7), ('d', 'f', 4), ('d', 'g', 3),
-            ('e', 'h', 5), ('f', 'g', 4), ('g', 'h', 1))).minimalSpanningTree)
+  println(Graph.fromString("[a-b, b-c, a-c, a-d]").nodes("a").degree)
+  println(Graph.fromString("[a-b, b-c, a-c, a-d]").nodesByDegree)
+  println(Graph.fromString("[a-b, b-c, a-c, a-d]").colorNodes)
+  
+  println(Graph.fromString("[a-b, b-c, e, a-c, a-d, a-f, f-b, g-d]").nodesByDepthFrom("d"))
 }
 
 
