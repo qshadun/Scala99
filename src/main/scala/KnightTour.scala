@@ -37,6 +37,7 @@ object KnightTour {
   def tourLazy(n: Int, pos: Point): Stream[List[Point]] = {
     var result = Stream.empty
     val allPos = for (i <- 1 to n; j <- 1 to n) yield Point(i, j)
+    // TODO: Not finished
     result
   } 
   
