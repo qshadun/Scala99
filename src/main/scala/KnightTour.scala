@@ -106,15 +106,42 @@ object KnightTour {
   def nextTour(stack: List[Frame]): Stream[List[Point]] = stack match {
     case Nil => Stream.empty
     case Frame(n, p, s, soFar) :: tail =>
-      if (s.size == n * n) Stream.cons(soFar, nextTour(tail))
+      if (s.size == n * n) Stream.cons(soFar.reverse, nextTour(tail))
       else nextTour(jumps(p, n, s).map(q => Frame(n, q, s + q, q :: soFar)) ::: tail)
   }
+  
+  def lazyMulThread(n: Int, start: Point) = {
+    val frames = start.jumps(n).map{p =>
+      Frame(n, p, Set(start) + p, p :: List(start))
+    }
+    frames.foreach{f =>
+      println("create thread")
+      new Thread(new Runnable(){
+        def run(){
+          nextTourAbrupt(List(f), (p, s) => s.size == n * n && p.jumps(n).contains(Point(1, 1)))
+        }
+      }).start
+    }
+  }
+  
+  def nextTourAbrupt(stack: List[Frame], done: (Point, Set[Point]) => Boolean): Unit = stack match {
+    case Nil => 
+    case Frame(n, p, s, soFar) :: tail =>
+      if (done(p, s)) {
+        println(soFar.reverse)
+        System.exit(0)
+      }
+      else nextTourAbrupt(jumps(p, n, s).map(q => Frame(n, q, s + q, q :: soFar)) ::: tail, done)
+  }
+
   def main(args: Array[String]): Unit = {
     //    val t = tour(8, Point(1, 1))
     //    println(t)
     //    println(t.length)
-
-    println(knightsTourLazyClosed(8).take(1).toList.mkString("\n"))
+  	val start = System.currentTimeMillis()
+    //println(knightsTourLazyClosed(8).take(1).toList.mkString("\n"))
+  	lazyMulThread(8, Point(1,1))
+    println(System.currentTimeMillis() - start)
   }
 
 }
